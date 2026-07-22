@@ -11,13 +11,19 @@ function enviarRecordatorios() {
 
   for (let i = 1; i < data.length; i++) {
     const fechaEnvio = obtenerValorFilaPorEncabezado(data[i], columnas, "FECHA", "");
+    const fechaUltimaInteraccion = obtenerValorFilaPorEncabezado(
+      data[i],
+      columnas,
+      ["ULTIMA_INTERACCION", "FECHA"],
+      fechaEnvio
+    );
     const estado = obtenerTextoFilaPorEncabezado(data[i], columnas, "ESTADO", "");
     const registro = construirRegistroDesdeFilaSeguimiento(data[i], columnas);
 
     if (!fechaEnvio || !registro.email) continue;
     if (!esEmailValido(registro.email)) continue;
 
-    const diasDesdeEnvio = calcularDiasDesde(fechaEnvio);
+    const diasDesdeEnvio = calcularDiasDesde(fechaUltimaInteraccion);
     const siguiente = obtenerSiguienteRecordatorio(estado, diasDesdeEnvio, diasRecordatorio1, diasRecordatorio2);
 
     if (!siguiente) continue;
@@ -37,8 +43,12 @@ function enviarRecordatorios() {
     };
     const asunto = reemplazarVariables(asuntoBase, registro.cliente, registro.placa, fechaVcto, textoOpciones, extras);
     const cuerpo = reemplazarVariables(cuerpoBase, registro.cliente, registro.placa, fechaVcto, textoOpciones, extras);
-    const opcionesEnvio = remitente ? { name: remitente } : {};
-    opcionesEnvio.htmlBody = convertirTextoCorreoAHtml(cuerpo);
+    const opcionesEnvio = construirOpcionesEnvioCorreo(
+      registro.producto,
+      config,
+      remitente,
+      convertirTextoCorreoAHtml(cuerpo)
+    );
 
     try {
       GmailApp.sendEmail(registro.email, asunto, cuerpo, opcionesEnvio);

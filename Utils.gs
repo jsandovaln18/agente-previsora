@@ -48,6 +48,91 @@ function obtenerConfigProductoRequerido(config, claveBase, producto) {
   return valor;
 }
 
+function obtenerConfigProductoOpcional(config, claveBase, producto, valorPorDefecto) {
+  const productoNormalizado = normalizarProducto(producto);
+  const claveProducto = String(claveBase).trim().toUpperCase() + "_" + productoNormalizado;
+  return obtenerConfigValor(config, claveProducto, valorPorDefecto);
+}
+
+function construirOpcionesEnvioCorreo(producto, config, remitente, htmlBody) {
+  const productoNormalizado = normalizarProducto(producto);
+  const opcionesEnvio = remitente ? { name: remitente } : {};
+  const from = obtenerConfigProductoOpcional(config, "FROM", productoNormalizado, "");
+  const replyTo = obtenerConfigProductoOpcional(config, "REPLY_TO", productoNormalizado, "");
+  const firmaHtml = obtenerFirmaHtmlProducto(config, productoNormalizado);
+
+  if (htmlBody) {
+    opcionesEnvio.htmlBody = agregarFirmaHtmlCorreo(htmlBody, firmaHtml);
+  } else if (firmaHtml) {
+    opcionesEnvio.htmlBody = firmaHtml;
+  }
+
+  if (from) {
+    validarAliasEnvioDisponible(from, productoNormalizado);
+    opcionesEnvio.from = from;
+  }
+
+  if (replyTo) {
+    opcionesEnvio.replyTo = replyTo;
+  }
+
+  return opcionesEnvio;
+}
+
+function obtenerFirmaHtmlProducto(config, producto) {
+  const firmaHtml = obtenerConfigProductoOpcional(config, "FIRMA_HTML", producto, "");
+  const firmaNormalizada = String(firmaHtml || "").trim();
+
+  if (!firmaNormalizada || normalizarTexto(firmaNormalizada) === "pendiente") {
+    return "";
+  }
+
+  return firmaNormalizada;
+}
+
+function agregarFirmaHtmlCorreo(htmlBody, firmaHtml) {
+  const contenido = String(htmlBody || "").trim();
+  const firma = String(firmaHtml || "").trim();
+
+  if (!contenido) {
+    return firma;
+  }
+
+  if (!firma) {
+    return contenido;
+  }
+
+  return contenido + '<div style="height:16px;"></div>' + firma;
+}
+
+function validarAliasEnvioDisponible(alias, producto) {
+  const aliasNormalizado = String(alias || "").trim().toLowerCase();
+
+  if (!aliasNormalizado) {
+    return;
+  }
+
+  const aliasesDisponibles = obtenerAliasesDisponiblesGmail();
+
+  if (!aliasesDisponibles.includes(aliasNormalizado)) {
+    throw new Error(
+      "El alias configurado en FROM_" + producto +
+      " no esta disponible en la cuenta que ejecuta el script: " + alias +
+      ". Agregalo en Gmail como alias de envio antes de usarlo."
+    );
+  }
+}
+
+function obtenerAliasesDisponiblesGmail() {
+  if (typeof globalThis.__aliasesDisponiblesGmail === "undefined") {
+    globalThis.__aliasesDisponiblesGmail = GmailApp
+      .getAliases()
+      .map(alias => String(alias || "").trim().toLowerCase());
+  }
+
+  return globalThis.__aliasesDisponiblesGmail;
+}
+
 function venceDentroDeDias(fechaVencimiento, diasAviso) {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);

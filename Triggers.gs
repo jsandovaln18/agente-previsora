@@ -3,6 +3,7 @@ function configurarTriggersAutomaticos() {
   const respuestasCadaHoras = Number(obtenerConfigValor(config, "RESPUESTAS_CADA_HORAS", CONFIG_RESPUESTAS.CADA_HORAS));
   const rebotesCadaHoras = Number(obtenerConfigValor(config, "REBOTES_CADA_HORAS", CONFIG_REBOTES.CADA_HORAS));
   const horaRecordatorios = Number(obtenerConfigValor(config, "HORA_RECORDATORIOS", CONFIG_RECORDATORIOS.HORA));
+  const recordatoriosActivos = debeActivarRecordatorios(config);
   const definiciones = [];
 
   if (CONFIG_ENVIO.ACTIVO) {
@@ -43,7 +44,7 @@ function configurarTriggersAutomaticos() {
     });
   }
 
-  if (CONFIG_RECORDATORIOS.ACTIVO) {
+  if (recordatoriosActivos) {
     validarHoraTrigger(horaRecordatorios, "RECORDATORIOS");
     definiciones.push({
       funcion: "enviarRecordatoriosAutomatico",
@@ -68,6 +69,17 @@ function configurarTriggersAutomaticos() {
   definiciones.forEach(crearTriggerSeguro);
 
   Logger.log("Triggers configurados correctamente: " + definiciones.length);
+}
+
+function debeActivarRecordatorios(config) {
+  const valor = obtenerConfigValor(config, "RECORDATORIOS_ACTIVO", CONFIG_RECORDATORIOS.ACTIVO);
+
+  if (valor === true) {
+    return true;
+  }
+
+  const texto = normalizarTexto(valor);
+  return texto === "si" || texto === "true" || texto === "1" || texto === "activo";
 }
 
 function crearTriggerSeguro(definicion) {

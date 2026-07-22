@@ -95,8 +95,12 @@ function iniciarAgenteRenovaciones(productoObjetivo) {
     const plantilla = obtenerPlantillaProducto(producto, config);
     const asunto = reemplazarVariables(plantilla.asunto, cliente, placa, fechaVcto, textoOpciones, extras);
     const mensaje = reemplazarVariables(plantilla.cuerpo, cliente, placa, fechaVcto, textoOpciones, extras);
-    const opcionesEnvio = remitente ? { name: remitente } : {};
-    opcionesEnvio.htmlBody = convertirTextoCorreoAHtml(mensaje);
+    const opcionesEnvio = construirOpcionesEnvioCorreo(
+      producto,
+      config,
+      remitente,
+      convertirTextoCorreoAHtml(mensaje)
+    );
 
     try {
       const adjuntos = obtenerAdjuntosOpcionesRenovacion(opciones);

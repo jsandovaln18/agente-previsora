@@ -25,9 +25,10 @@ function leerRespuestasClientes() {
 
       const asunto = msg.getSubject();
       const respuesta = limpiarRespuestaCliente(msg.getPlainBody());
+      const tieneAdjuntos = mensajeTieneAdjuntos(msg);
       const fecha = msg.getDate();
 
-      if (!respuesta) continue;
+      if (!respuesta && !tieneAdjuntos) continue;
 
       const asuntosConversacion = obtenerAsuntosEnviadosAntesDeRespuesta(mensajes, j, emailAgente);
       asuntosConversacion.push(asunto);
@@ -47,6 +48,7 @@ function leerRespuestasClientes() {
         email: emailCliente,
         asunto: asunto,
         estadoActual: filaSeguimiento.estado,
+        tieneAdjuntos: tieneAdjuntos,
         historialRespuestas: obtenerHistorialRespuestasCliente(mensajes, j, emailAgente)
       };
 
@@ -64,6 +66,13 @@ function leerRespuestasClientes() {
       idsProcesados.add(idMensaje);
     }
   }
+}
+
+function mensajeTieneAdjuntos(mensaje) {
+  return mensaje.getAttachments({
+    includeInlineImages: false,
+    includeAttachments: true
+  }).length > 0;
 }
 
 function obtenerHistorialRespuestasCliente(mensajes, indiceRespuesta, emailAgente) {
@@ -194,38 +203,58 @@ function clasificarRespuestaCliente(respuesta) {
 }
 
 function clasificarRespuestaClienteDetallada(respuesta, contexto, config) {
-  if (debeUsarIA(config)) {
-    const resultadoIA = clasificarRespuestaConIA(respuesta, contexto || {}, config || {});
-    const resultadoReglas = clasificarRespuestaPorReglas(respuesta);
+  const contextoClasificacion = contexto || {};
+  const resultadoReglas = clasificarRespuestaPorReglas(respuesta);
 
-    return resolverClasificacionIAConReglas(resultadoIA, resultadoReglas);
+  if (!debeUsarIA(config)) {
+    return resolverClasificacionSoloConReglas(resultadoReglas, contextoClasificacion);
   }
 
-  return clasificarRespuestaPorReglas(respuesta);
+  const resultadoIA = clasificarRespuestaConIA(respuesta, contextoClasificacion, config || {});
+  return resolverClasificacionConGuardrails(resultadoIA, resultadoReglas, contextoClasificacion);
 }
 
-function resolverClasificacionIAConReglas(resultadoIA, resultadoReglas) {
+function resolverClasificacionSoloConReglas(resultadoReglas, contextoClasificacion) {
+  if (
+    contextoClasificacion.tieneAdjuntos &&
+    resultadoReglas.clasificacion === INTENCIONES.RESPUESTA_NO_CLARA
+  ) {
+    return crearResultadoClasificacion(
+      INTENCIONES.ENVIA_DOCUMENTOS,
+      "Cliente respondio con adjuntos y el texto no fue concluyente.",
+      "REGLAS",
+      "ALTA"
+    );
+  }
+
+  return resultadoReglas;
+}
+
+function resolverClasificacionConGuardrails(resultadoIA, resultadoReglas, contextoClasificacion) {
   const reglasConPrioridad = [
     INTENCIONES.NO_INTERESADO,
     INTENCIONES.YA_RENOVO
   ];
 
   if (reglasConPrioridad.includes(resultadoReglas.clasificacion)) {
-    resultadoReglas.fuente = "IA+REGLAS";
-    resultadoReglas.observacion += " La regla explicita prevalece sobre el analisis de IA.";
+    resultadoReglas.fuente = resultadoIA.fuente === "IA_ERROR" ? "IA_ERROR+REGLAS" : "IA+REGLAS_GUARDRAIL";
     return resultadoReglas;
   }
 
   if (
-    resultadoIA.fuente === "IA" &&
-    resultadoIA.clasificacion !== INTENCIONES.RESPUESTA_NO_CLARA
+    contextoClasificacion.tieneAdjuntos &&
+    resultadoReglas.clasificacion === INTENCIONES.RESPUESTA_NO_CLARA
   ) {
-    resultadoIA.fuente = "IA+REGLAS";
-    return resultadoIA;
+    return crearResultadoClasificacion(
+      INTENCIONES.ENVIA_DOCUMENTOS,
+      "Cliente respondio con adjuntos y el texto no fue concluyente.",
+      resultadoIA.fuente === "IA_ERROR" ? "IA_ERROR+REGLAS" : "IA+REGLAS_GUARDRAIL",
+      "ALTA"
+    );
   }
 
-  if (resultadoReglas.clasificacion !== INTENCIONES.RESPUESTA_NO_CLARA) {
-    resultadoReglas.fuente = resultadoIA.fuente === "IA_ERROR" ? "IA_ERROR+REGLAS" : "IA+REGLAS";
+  if (resultadoIA.fuente === "IA_ERROR") {
+    resultadoReglas.fuente = "IA_ERROR+REGLAS";
     return resultadoReglas;
   }
 
@@ -361,12 +390,24 @@ function clasificarRespuestaPorReglas(respuesta) {
 
 function contieneAlgunaFrase(texto, frases) {
   for (const frase of frases) {
-    if (texto.includes(normalizarTexto(frase))) {
+    if (contieneFraseNormalizada(texto, frase)) {
       return true;
     }
   }
 
   return false;
+}
+
+function contieneFraseNormalizada(texto, frase) {
+  const textoNormalizado = normalizarTexto(texto).replace(/\s+/g, " ");
+  const fraseNormalizada = normalizarTexto(frase).replace(/\s+/g, " ");
+  const patron = new RegExp("(^|[^a-z0-9])" + escaparRegex(fraseNormalizada) + "($|[^a-z0-9])");
+
+  return patron.test(textoNormalizado);
+}
+
+function escaparRegex(texto) {
+  return String(texto || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function crearResultadoClasificacion(clasificacion, observacion, fuente, confianza, datosExtraidos) {

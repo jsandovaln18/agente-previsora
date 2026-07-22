@@ -1,8 +1,9 @@
 function registrarSeguimiento(registro, estado, observacion, ultimoAsunto) {
   const sheet = obtenerHoja(NOMBRE_HOJA_SEGUIMIENTO);
+  const fechaActual = new Date();
 
   const fila = agregarFilaEnPrimerEspacioLibre(sheet, [
-    new Date(),
+    fechaActual,
     normalizarProducto(registro.producto),
     registro.cliente || "",
     registro.contacto || "",
@@ -18,6 +19,7 @@ function registrarSeguimiento(registro, estado, observacion, ultimoAsunto) {
   ]);
 
   aplicarFormatoFechaHora(sheet, fila, 1);
+  actualizarUltimaInteraccionSeguimiento(sheet, fila, fechaActual);
 }
 
 function registrarLog(proceso, registro, resultado, detalle) {
@@ -48,20 +50,32 @@ function obtenerClavesYaProcesadas(seguimientoSheet) {
 
     if (!registro.email || !registro.vcto) continue;
 
-    if (
-      estado === ESTADOS.ENVIADO ||
-      estado === ESTADOS.RECORDATORIO_1_ENVIADO ||
-      estado === ESTADOS.RECORDATORIO_2_ENVIADO ||
-      estado === ESTADOS.REBOTADO ||
-      estado === ESTADOS.ACEPTA_RENOVACION ||
-      estado === ESTADOS.NO_INTERESADO ||
-      estado === ESTADOS.YA_RENOVO
-    ) {
+    if (estadoBloqueaNuevoEnvio(estado)) {
       claves.add(generarClaveSeguimiento(registro));
     }
   }
 
   return claves;
+}
+
+function estadoBloqueaNuevoEnvio(estado) {
+  return [
+    ESTADOS.ENVIADO,
+    ESTADOS.RECORDATORIO_1_ENVIADO,
+    ESTADOS.RECORDATORIO_2_ENVIADO,
+    ESTADOS.RESPONDIDO,
+    ESTADOS.ACEPTA_RENOVACION,
+    ESTADOS.SOLICITA_INFORMACION,
+    ESTADOS.ENVIA_DOCUMENTOS,
+    ESTADOS.SOLICITA_VALIDACION,
+    ESTADOS.SOLICITA_CONTACTO,
+    ESTADOS.NO_INTERESADO,
+    ESTADOS.YA_RENOVO,
+    ESTADOS.RESPUESTA_NO_CLARA,
+    ESTADOS.REQUIERE_REVISION,
+    ESTADOS.REBOTADO,
+    ESTADOS.CERRADO
+  ].includes(estado);
 }
 
 function buscarFilaSeguimientoPorEmail(seguimiento, emailCliente) {
@@ -122,6 +136,7 @@ function construirRegistroDesdeFilaSeguimiento(fila, columnas) {
     poliza: obtenerTextoFilaPorEncabezado(fila, columnas, "POLIZA", ""),
     vcto: obtenerValorFilaPorEncabezado(fila, columnas, "VENCIMIENTO", ""),
     vencimiento: obtenerValorFilaPorEncabezado(fila, columnas, "VENCIMIENTO", ""),
+    ultimaInteraccion: obtenerValorFilaPorEncabezado(fila, columnas, "ULTIMA_INTERACCION", ""),
     hojaOrigen: obtenerTextoFilaPorEncabezado(fila, columnas, "HOJA_ORIGEN", ""),
     filaOrigen: obtenerValorFilaPorEncabezado(fila, columnas, "FILA_ORIGEN", "")
   };
@@ -131,13 +146,16 @@ function actualizarSeguimientoPorRespuesta(seguimientoSheet, fila, resultadoClas
   const columnas = crearMapaEncabezados(seguimientoSheet);
   const estado = resultadoClasificacion.clasificacion || ESTADOS.RESPUESTA_NO_CLARA;
   const observacion = resultadoClasificacion.observacion || obtenerObservacionClasificacion(estado);
+  const fechaActual = new Date();
 
   seguimientoSheet.getRange(fila, columnas.ESTADO).setValue(estado);
   seguimientoSheet.getRange(fila, columnas.OBSERVACION).setValue(observacion);
+  actualizarUltimaInteraccionSeguimiento(seguimientoSheet, fila, fechaActual, columnas);
 }
 
 function actualizarSeguimientoRecordatorio(seguimientoSheet, fila, estado, observacion, asunto) {
   const columnas = crearMapaEncabezados(seguimientoSheet);
+  const fechaActual = new Date();
 
   seguimientoSheet.getRange(fila, columnas.ESTADO).setValue(estado);
   seguimientoSheet.getRange(fila, columnas.OBSERVACION).setValue(observacion);
@@ -145,13 +163,28 @@ function actualizarSeguimientoRecordatorio(seguimientoSheet, fila, estado, obser
   if (columnas.ULTIMO_ASUNTO) {
     seguimientoSheet.getRange(fila, columnas.ULTIMO_ASUNTO).setValue(asunto || "");
   }
+
+  actualizarUltimaInteraccionSeguimiento(seguimientoSheet, fila, fechaActual, columnas);
 }
 
 function marcarSeguimientoRebotado(seguimientoSheet, fila, observacion) {
   const columnas = crearMapaEncabezados(seguimientoSheet);
+  const fechaActual = new Date();
 
   seguimientoSheet.getRange(fila, columnas.ESTADO).setValue(ESTADOS.REBOTADO);
   seguimientoSheet.getRange(fila, columnas.OBSERVACION).setValue(observacion || "Correo rebotado / direccion no encontrada");
+  actualizarUltimaInteraccionSeguimiento(seguimientoSheet, fila, fechaActual, columnas);
+}
+
+function actualizarUltimaInteraccionSeguimiento(seguimientoSheet, fila, fecha, columnas) {
+  const mapaColumnas = columnas || crearMapaEncabezados(seguimientoSheet);
+
+  if (!mapaColumnas.ULTIMA_INTERACCION) {
+    return;
+  }
+
+  seguimientoSheet.getRange(fila, mapaColumnas.ULTIMA_INTERACCION).setValue(fecha);
+  aplicarFormatoFechaHora(seguimientoSheet, fila, mapaColumnas.ULTIMA_INTERACCION);
 }
 
 function obtenerObservacionClasificacion(clasificacion) {
